@@ -24,6 +24,7 @@ import rx.Observable;
 import rx.functions.Action1;
 import rx.functions.Func1;
 import rx.functions.Func2;
+import rx.subscriptions.CompositeSubscription;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -39,7 +40,8 @@ public class MainActivity extends AppCompatActivity {
     TodoAdapter adapter;
 
     TodoList list;
-    TodoListFilter filter;
+
+    CompositeSubscription subscriptions = new CompositeSubscription();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,8 +55,6 @@ public class MainActivity extends AppCompatActivity {
             list = new TodoList(getSharedPreferences("data", Context.MODE_PRIVATE).getString(LIST, null));
         }
 
-        // setup the Filter which allows us to get the data we want to display
-        filter = new TodoListFilter(list);
 
         // setup the Adapter, this contains a callback when an item is checked/unchecked
         adapter = new TodoAdapter(this, new TodoCompletedChangeListener() {
@@ -63,8 +63,6 @@ public class MainActivity extends AppCompatActivity {
                 list.toggle(todo);
             }
         });
-        list.asObservable().subscribe(adapter);
-        list.asObservable().subscribe(filter);
         // setup the list with the adapter
         recyclerView = (RecyclerView) findViewById(R.id.recyclerview);
         recyclerView.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false));
@@ -73,27 +71,28 @@ public class MainActivity extends AppCompatActivity {
         // setup adding new items to the list
         addInput = (EditText) findViewById(R.id.add_todo_input);
         findViewById(R.id.add_todo_container).requestFocus(); // ensures the edittext isn't focused when entering the Activity
-        RxView.clicks(findViewById(R.id.btn_add_todo))
-                .map(new Func1<Void, String>() {
-                    @Override
-                    public String call(Void aVoid) {
-                        return addInput.getText().toString();
-                    }
-                }).filter(new Func1<String, Boolean>() {
+        subscriptions.add(
+                RxView.clicks(findViewById(R.id.btn_add_todo))
+                        .map(new Func1<Void, String>() {
+                            @Override
+                            public String call(Void aVoid) {
+                                return addInput.getText().toString();
+                            }
+                        }).filter(new Func1<String, Boolean>() {
                     @Override
                     public Boolean call(String s) {
                         return !TextUtils.isEmpty(s);
                     }
                 })
-                .subscribe(new Action1<String>() {
-                    @Override
-                    public void call(String s) {
-                        list.add(new Todo(s,false));
-                        addInput.setText("");
-                        findViewById(R.id.add_todo_container).requestFocus();
-                        dismissKeyboard();
-                    }
-                });
+                        .subscribe(new Action1<String>() {
+                            @Override
+                            public void call(String s) {
+                                list.add(new Todo(s,false));
+                                addInput.setText("");
+                                findViewById(R.id.add_todo_container).requestFocus();
+                                dismissKeyboard();
+                            }
+                        }));
 
         // setup the toolbar
         toolbar = (Toolbar) findViewById(R.id.toolbar);
@@ -102,30 +101,20 @@ public class MainActivity extends AppCompatActivity {
         // setup the filter in the toolbar
         spinner = (Spinner) toolbar.findViewById(R.id.spinner);
         spinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, new String[]{"All", "Incomplete", "Completed"}));
-        Observable.combineLatest(
-                RxAdapterView.itemSelections(spinner).skip(1),
-                list.asObservable(), new Func2<Integer, TodoList, List<Todo>>() {
-                    @Override
-                    public List<Todo> call(Integer integer, TodoList todoList) {
-                        switch (integer){
-                            case FilterPositions.INCOMPLETE: return list.getIncomplete();
-                            case FilterPositions.COMPLETE : return list.getCompleted();
-                            default:return  list.getAll();
+        subscriptions.add(
+                Observable.combineLatest(
+                        RxAdapterView.itemSelections(spinner).skip(1),
+                        list.asObservable(), new Func2<Integer, TodoList, List<Todo>>() {
+                            @Override
+                            public List<Todo> call(Integer integer, TodoList todoList) {
+                                switch (integer){
+                                    case FilterPositions.INCOMPLETE: return list.getIncomplete();
+                                    case FilterPositions.COMPLETE : return list.getCompleted();
+                                    default:return  list.getAll();
+                                }
+                            }
                         }
-                    }
-                }
-        ).subscribe(adapter);
-        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                filter.setFilterMode(position);
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-                filter.setFilterMode(TodoListFilter.ALL);
-            }
-        });
+                ).subscribe(adapter));
 
     }
 
@@ -138,7 +127,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-
+        subscriptions.unsubscribe();
         SharedPreferences.Editor editor = getSharedPreferences("data", Context.MODE_PRIVATE).edit();
         editor.putString(LIST, list.toString());
         editor.apply();
