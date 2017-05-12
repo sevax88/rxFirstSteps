@@ -29,17 +29,16 @@ import rx.subscriptions.CompositeSubscription;
 public class MainActivity extends AppCompatActivity {
 
     private static final String LIST = "list";
+    private static final String FILTER = "filter";
 
 
     Toolbar toolbar;
     Spinner spinner;
-
     EditText addInput;
-
     RecyclerView recyclerView;
     TodoAdapter adapter;
-
     TodoList list;
+    int filterPosition = FilterPositions.ALL;
 
     CompositeSubscription subscriptions = new CompositeSubscription();
 
@@ -51,18 +50,25 @@ public class MainActivity extends AppCompatActivity {
         // retrieve from Saved State or SharedPreferences if we are starting fresh
         if (savedInstanceState != null) {
             list = new TodoList(savedInstanceState.getString(LIST));
+            filterPosition = savedInstanceState.getInt(FILTER,FilterPositions.ALL);
         } else {
             list = new TodoList(getSharedPreferences("data", Context.MODE_PRIVATE).getString(LIST, null));
+            list.add(new Todo("Sample1",true));
+            list.add(new Todo("Sample2",false));
+            list.add(new Todo("Sample3",true));
         }
 
 
         // setup the Adapter, this contains a callback when an item is checked/unchecked
-        adapter = new TodoAdapter(this, new TodoCompletedChangeListener() {
-            @Override
-            public void onTodoCompletedChanged(Todo todo) {
-                list.toggle(todo);
-            }
-        });
+//        adapter = new TodoAdapter(this, new TodoCompletedChangeListener() {
+//            @Override
+//            public void onTodoCompletedChanged(Todo todo) {
+//                list.toggle(todo);
+//            }
+//        });
+
+        adapter = new TodoAdapter(this,list);
+
         // setup the list with the adapter
         recyclerView = (RecyclerView) findViewById(R.id.recyclerview);
         recyclerView.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false));
@@ -100,7 +106,6 @@ public class MainActivity extends AppCompatActivity {
 
         // setup the filter in the toolbar
         spinner = (Spinner) toolbar.findViewById(R.id.spinner);
-        spinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, new String[]{"All", "Incomplete", "Completed"}));
         subscriptions.add(
                 Observable.combineLatest(
                         RxAdapterView.itemSelections(spinner).skip(1),
@@ -115,12 +120,14 @@ public class MainActivity extends AppCompatActivity {
                             }
                         }
                 ).subscribe(adapter));
-
+        spinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, new String[]{"All", "Incomplete", "Completed"}));
+        spinner.setSelection(filterPosition);
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         outState.putString(LIST, list.toString());
+        outState.putInt(FILTER,spinner.getSelectedItemPosition());
         super.onSaveInstanceState(outState);
     }
 
